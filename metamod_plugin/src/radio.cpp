@@ -744,6 +744,20 @@ bool langsSort(string a, string b) {
 	return g_langs[a] < g_langs[b];
 }
 
+// Helper function to escape special characters by adding a preceding backslash.
+string escapeSpecialChars(const string& str) {
+    string result;
+    result.reserve(str.size());
+    for (char c : str) {
+        // Escape backslashes, percent signs, and carets with an additional backslash.
+        if (c == '\\' || c == '%' || c == '^') {
+            result += '\\';
+        }
+        result += c;
+    }
+    return result;
+}
+
 bool doCommand(edict_t* plr) {
 	bool isAdmin = AdminLevel(plr) >= ADMIN_YES;
 	int playerid = g_engfuncs.pfnGetPlayerUserId(plr);
@@ -1097,17 +1111,37 @@ bool doCommand(edict_t* plr) {
 		}
 	}
 	else if (!args.isConsoleCmd && lowerArg.length() > 0) {
-		if (lowerArg[0] == '~') {
-			if (g_any_radio_listeners && lowerArg.find("https://") != 0 && lowerArg.find("http://") != 0) {
-				// speak the message
-				send_voice_server_message(UTIL_VarArgs("%s\\%s\\%d\\%s", STRING(plr->v.netname), state.lang.c_str(), state.pitch, args.getFullCommand().c_str()));
-			}
+        if (lowerArg[0] == '~') {
+            if (g_any_radio_listeners && lowerArg.find("https://") != 0 && lowerArg.find("http://") != 0) {
+                // Escape special characters in the player's name and message to prevent parsing issues.
+                string playerName = escapeSpecialChars(STRING(plr->v.netname));
+                string fullCommand = escapeSpecialChars(args.getFullCommand());
 
-			string printMsg = string("[Radio][TTS] ") + STRING(plr->v.netname) + ": " + args.getFullCommand() + "\n";
-			ClientPrintAll(HUD_PRINTCONSOLE, replaceString(printMsg, "%", "%%").c_str()); // prevent crash
-			return true;
-		}
-	}
+                // Limit message length to prevent buffer overflows.
+                const size_t MAX_MESSAGE_LENGTH = 256;
+                if (fullCommand.length() > MAX_MESSAGE_LENGTH) {
+                    fullCommand = fullCommand.substr(0, MAX_MESSAGE_LENGTH);
+                }
 
-	return false;
+                // Send the escaped message to the voice server.
+                send_voice_server_message(UTIL_VarArgs("%s\\%s\\%d\\%s",
+                    playerName.c_str(), state.lang.c_str(), state.pitch, fullCommand.c_str()));
+            }
+
+            // Build the print message using the escaped inputs.
+            string playerName = escapeSpecialChars(STRING(plr->v.netname));
+            string fullCommand = escapeSpecialChars(args.getFullCommand());
+
+            // Escape '%' characters to prevent format string vulnerabilities.
+            string printMsg = "[Radio][TTS] " + playerName + ": " + fullCommand + "\n";
+            printMsg = replaceString(printMsg, "%", "%%");
+
+            // Send the message to all clients' consoles.
+            ClientPrintAll(HUD_PRINTCONSOLE, printMsg.c_str());
+
+            return true;
+        }
+    }
+
+    return false;
 }
