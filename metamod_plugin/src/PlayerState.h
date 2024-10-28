@@ -19,6 +19,7 @@ struct PlayerState {
 	float lastDjToggle = -999; // for cooldown
 	float lastSongSkip = -999; // for cooldown
 	float lastLaggyCmd = -999; // for cooldown
+	float lastVoiceMessageTime = 0; // time of the last voice message sent
 	bool showHud = true;
 	bool playAfterFullyLoaded = true; // toggle map music when fully loaded into the map
 	bool neverUsedBefore = true;

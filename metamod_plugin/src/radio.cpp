@@ -80,6 +80,7 @@ cvar_t* g_inviteCooldown;
 cvar_t* g_requestCooldown;
 cvar_t* g_djSwapCooldown;
 cvar_t* g_skipSongCooldown;
+cvar_t* g_voiceCooldown; // Cvar for controlling the voice message cooldown time
 cvar_t* g_djReserveTime;
 cvar_t* g_djIdleTime;
 cvar_t* g_maxQueue;
@@ -140,6 +141,7 @@ void PluginInit() {
 	g_requestCooldown = RegisterCVar("radio.requestCooldown", "300", 300, 0);
 	g_djSwapCooldown = RegisterCVar("radio.djSwapCooldown", "5", 5, 0);
 	g_skipSongCooldown = RegisterCVar("radio.skipSongCooldown", "10", 10, 0);
+	g_voiceCooldown = RegisterCVar("radio.voiceCooldown", "2.0", 2.0, 0); // Default cooldown is 2.0 seconds
 	g_djReserveTime = RegisterCVar("radio.djReserveTime", "240", 240, 0);
 	g_djIdleTime = RegisterCVar("radio.djIdleTime", "180", 180, 0);
 	g_maxQueue = RegisterCVar("radio.maxQueue", "8", 8, 0);
@@ -1111,37 +1113,50 @@ bool doCommand(edict_t* plr) {
 		}
 	}
 	else if (!args.isConsoleCmd && lowerArg.length() > 0) {
-        if (lowerArg[0] == '~') {
-            if (g_any_radio_listeners && lowerArg.find("https://") != 0 && lowerArg.find("http://") != 0) {
-                // Escape special characters in the player's name and message to prevent parsing issues.
-                string playerName = escapeSpecialChars(STRING(plr->v.netname));
-                string fullCommand = escapeSpecialChars(args.getFullCommand());
+		if (lowerArg[0] == '~') {
+			if (g_any_radio_listeners && lowerArg.find("https://") != 0 && lowerArg.find("http://") != 0) {
+				// Get the cooldown time from the cvar
+				float voiceCooldown = g_voiceCooldown->value;
 
-                // Limit message length to prevent buffer overflows.
-                const size_t MAX_MESSAGE_LENGTH = 256;
-                if (fullCommand.length() > MAX_MESSAGE_LENGTH) {
-                    fullCommand = fullCommand.substr(0, MAX_MESSAGE_LENGTH);
-                }
+				// Check if enough time has passed since the last voice message
+				float currentTime = gpGlobals->time;
+				if (currentTime - state.lastVoiceMessageTime < voiceCooldown) {
+					ClientPrint(plr, HUD_PRINTTALK, "[Radio] Please wait before sending another message.\n");
+					return true;
+				}
 
-                // Send the escaped message to the voice server.
-                send_voice_server_message(UTIL_VarArgs("%s\\%s\\%d\\%s",
-                    playerName.c_str(), state.lang.c_str(), state.pitch, fullCommand.c_str()));
-            }
+				// Escape special characters in the player's name and message to prevent parsing issues.
+				string playerName = escapeSpecialChars(STRING(plr->v.netname));
+				string fullCommand = escapeSpecialChars(args.getFullCommand());
 
-            // Build the print message using the escaped inputs.
-            string playerName = escapeSpecialChars(STRING(plr->v.netname));
-            string fullCommand = escapeSpecialChars(args.getFullCommand());
+				// Limit message length to prevent buffer overflows.
+				const size_t MAX_MESSAGE_LENGTH = 256;
+				if (fullCommand.length() > MAX_MESSAGE_LENGTH) {
+					fullCommand = fullCommand.substr(0, MAX_MESSAGE_LENGTH);
+				}
 
-            // Escape '%' characters to prevent format string vulnerabilities.
-            string printMsg = "[Radio][TTS] " + playerName + ": " + fullCommand + "\n";
-            printMsg = replaceString(printMsg, "%", "%%");
+				// Send the escaped message to the voice server.
+				send_voice_server_message(UTIL_VarArgs("%s\\%s\\%d\\%s",
+					playerName.c_str(), state.lang.c_str(), state.pitch, fullCommand.c_str()));
 
-            // Send the message to all clients' consoles.
-            ClientPrintAll(HUD_PRINTCONSOLE, printMsg.c_str());
+				// Update the last message time
+				state.lastVoiceMessageTime = currentTime;
+			}
 
-            return true;
-        }
-    }
+			// Build the print message using the escaped inputs.
+			string playerName = escapeSpecialChars(STRING(plr->v.netname));
+			string fullCommand = escapeSpecialChars(args.getFullCommand());
+
+			// Escape '%' characters to prevent format string vulnerabilities.
+			string printMsg = "[Radio][TTS] " + playerName + ": " + fullCommand + "\n";
+			printMsg = replaceString(printMsg, "%", "%%");
+
+			// Send the message to all clients' consoles.
+			ClientPrintAll(HUD_PRINTCONSOLE, printMsg.c_str());
+
+			return true;
+		}
+	}
 
     return false;
 }
